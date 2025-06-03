@@ -52,6 +52,7 @@ contract TicketContractTest is Test {
     }
 
     function test_RefundAfterCancellation() public {
+        // Triggering a new commit for CI
         vm.startPrank(creator);
         uint256 eventId = eventContract.createEvent("Refundable", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
         vm.stopPrank();
