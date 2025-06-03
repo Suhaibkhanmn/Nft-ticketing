@@ -59,12 +59,12 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
         emit TicketMinted(newTicketId, eventId, msg.sender);
 
         // Pay event creator
-        (bool sent, ) = event_.creator.call{value: event_.price}("");
+        (bool sent,) = event_.creator.call{value: event_.price}("");
         require(sent, "Payout to organizer failed");
 
         // Refund extra if overpaid
         if (msg.value > event_.price) {
-            (bool refunded, ) = msg.sender.call{value: msg.value - event_.price}("");
+            (bool refunded,) = msg.sender.call{value: msg.value - event_.price}("");
             require(refunded, "Refund failed");
         }
 
@@ -105,11 +105,11 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
         }
 
         // Pay event creator
-        (bool sent, ) = event_.creator.call{value: totalCost}("");
+        (bool sent,) = event_.creator.call{value: totalCost}("");
         require(sent, "Payout to organizer failed");
 
         if (msg.value > totalCost) {
-            (bool refunded, ) = msg.sender.call{value: msg.value - totalCost}("");
+            (bool refunded,) = msg.sender.call{value: msg.value - totalCost}("");
             require(refunded, "Refund failed");
         }
 
@@ -139,7 +139,7 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
 
         emit TicketRefunded(ticketId, msg.sender);
 
-        (bool sent, ) = msg.sender.call{value: ticket.price}("");
+        (bool sent,) = msg.sender.call{value: ticket.price}("");
         require(sent, "Refund transfer failed");
     }
 
@@ -161,7 +161,7 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
         ticket.isForSale = false;
         _transfer(seller, msg.sender, ticketId);
 
-        (bool sent, ) = seller.call{value: ticket.price}("");
+        (bool sent,) = seller.call{value: ticket.price}("");
         require(sent, "Payout failed");
         emit TicketSold(ticketId, seller, msg.sender, ticket.price);
     }
