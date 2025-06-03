@@ -28,108 +28,212 @@ import { useToast } from "@/components/ui/use-toast";
 import { Calendar, Clock, MapPin, MoreHorizontal, Send, Tag, QrCode, Users } from "lucide-react";
 import { format } from "date-fns";
 import Image from "next/image";
+import { useWeb3 } from "@/providers/web3-provider";
+import { getEventContract, getTicketContract } from "@/lib/contracts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ethers } from "ethers";
 
-// Mock tickets data
-const MOCK_TICKETS = [
-  {
-    id: "1",
-    eventId: "1",
-    event: {
-      id: "1",
-      name: "Crypto Music Festival 2025",
-      description: "The biggest blockchain music festival of the year",
-      date: new Date("2025-07-15T18:00:00"),
-      location: "Miami, FL",
-      image: "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-      category: "music",
-    },
-    purchaseDate: new Date("2023-10-15"),
-    price: 0.05,
-    currency: "ETH",
-    forSale: false,
-  },
-  {
-    id: "2",
-    eventId: "2",
-    event: {
-      id: "2",
-      name: "Blockchain Developer Conference",
-      description: "Annual conference for blockchain developers",
-      date: new Date("2025-08-10T09:00:00"),
-      location: "San Francisco, CA",
-      image: "https://images.pexels.com/photos/7688336/pexels-photo-7688336.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-      category: "conference",
-    },
-    purchaseDate: new Date("2023-11-20"),
-    price: 0.1,
-    currency: "ETH",
-    forSale: false,
-  },
-  {
-    id: "3",
-    eventId: "3",
-    event: {
-      id: "3",
-      name: "Crypto NBA All-Star Game",
-      description: "Special NBA game with NFT ticket holders perks",
-      date: new Date("2025-02-15T19:30:00"),
-      location: "Los Angeles, CA",
-      image: "https://images.pexels.com/photos/945471/pexels-photo-945471.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-      category: "sports",
-    },
-    purchaseDate: new Date("2023-12-01"),
-    price: 0.15,
-    currency: "ETH",
-    forSale: true,
-    resalePrice: 0.2,
-  },
-];
+type Ticket = {
+  id: string;
+  eventId: string;
+  event: {
+    id: string;
+    name: string;
+    description: string;
+    date: Date;
+    location: string;
+    image: string;
+    category: string;
+  };
+  purchaseDate: Date;
+  price: number;
+  currency: string;
+  forSale: boolean;
+  resalePrice?: number;
+};
 
 export function MyTicketsTab() {
   const [activeTab, setActiveTab] = useState("upcoming");
-  const [selectedTicket, setSelectedTicket] = useState<typeof MOCK_TICKETS[0] | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showSellModal, setShowSellModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [transferAddress, setTransferAddress] = useState("");
   const { toast } = useToast();
-  
-  const upcomingTickets = MOCK_TICKETS.filter(
+  const { wallet } = useWeb3();
+  const queryClient = useQueryClient();
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [ticketsState, setTicketsState] = useState<Ticket[] | null>(null);
+
+  const { data: tickets, isLoading } = useQuery({
+    queryKey: ['tickets', wallet.address],
+    queryFn: async () => {
+      if (!wallet.signer) throw new Error("Wallet not connected");
+
+      const ticketContract = getTicketContract(wallet.signer);
+      const eventContract = getEventContract(wallet.signer);
+
+      // Always use the connected wallet address
+      const ticketIds: bigint[] = await ticketContract.getUserTickets(wallet.address!);
+      console.log('Fetched ticketIds:', ticketIds);
+
+      const tickets = await Promise.all(
+        ticketIds.map(async (ticketId) => {
+          // Get ticket details
+          const ticket = await ticketContract.getTicketDetails(ticketId);
+          // Get event details
+          const event = await eventContract.getEventDetails(ticket.eventId);
+
+          return {
+            id: ticket.id.toString(),
+            eventId: ticket.eventId.toString(),
+            event: {
+              id: event.id.toString(),
+              name: event.name,
+              description: event.description,
+              date: new Date(Number(event.date) * 1000),
+              location: event.location,
+              image: event.image || "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
+              category: "music",
+            },
+            purchaseDate: new Date(),
+            price: Number(ethers.formatEther(event.price)),
+            currency: "ETH",
+            forSale: false,
+          };
+        })
+      );
+      console.log('Fetched tickets:', tickets);
+
+      return tickets;
+    },
+    enabled: !!wallet.signer && !!wallet.address,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    staleTime: 0,
+  });
+
+  // Use ticketsState if set, otherwise use fetched tickets
+  const displayedTickets = ticketsState ?? tickets;
+
+  const upcomingTickets = displayedTickets?.filter(
     ticket => new Date(ticket.event.date) > new Date()
-  );
-  
-  const pastTickets = MOCK_TICKETS.filter(
+  ) ?? [];
+
+  const pastTickets = displayedTickets?.filter(
     ticket => new Date(ticket.event.date) <= new Date()
-  );
+  ) ?? [];
 
-  const handleTransfer = () => {
-    toast({
-      title: "Ticket Transfer Initiated",
-      description: "Transfer process has been started for your ticket",
-    });
-    setShowTransferModal(false);
+  const handleTransfer = async () => {
+    if (!selectedTicket || !wallet.signer || !transferAddress) return;
+
+    setIsTransferring(true);
+    try {
+      const ticketContract = getTicketContract(wallet.signer);
+
+      // Validate address format
+      if (!ethers.isAddress(transferAddress)) {
+        throw new Error("Invalid recipient address");
+      }
+
+      // Check ownership
+      const owner = await ticketContract.ownerOf(BigInt(selectedTicket.id));
+      if (owner.toLowerCase() !== wallet.address?.toLowerCase()) {
+        throw new Error(`Ownership mismatch. Contract owner: ${owner}, Your address: ${wallet.address}`);
+      }
+
+      const tx = await ticketContract.transferTicket(
+        BigInt(selectedTicket.id),
+        transferAddress
+      );
+      await tx.wait();
+
+      // Optimistically remove the ticket from the sender's dashboard
+      setTicketsState((prev) => (prev ? prev.filter(t => t.id !== selectedTicket.id) : null));
+
+      // Optionally, trigger a refetch for the receiver's tickets if they are using the app
+      await queryClient.invalidateQueries({ queryKey: ['tickets', transferAddress] });
+
+      toast({
+        title: "Success",
+        description: `Ticket transferred from ${wallet.address} to ${transferAddress}!`,
+      });
+      setShowTransferModal(false);
+      setTransferAddress("");
+    } catch (error) {
+      console.error('Transfer error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to transfer ticket",
+        variant: "destructive",
+      });
+    } finally {
+      setIsTransferring(false);
+    }
   };
 
-  const handleListForSale = () => {
-    toast({
-      title: "Ticket Listed for Sale",
-      description: "Your ticket has been listed on the marketplace",
-    });
-    setShowSellModal(false);
+  const handleListForSale = async (price: number) => {
+    if (!selectedTicket || !wallet.signer) return;
+
+    try {
+      const eventContract = getEventContract(wallet.signer);
+      const tx = await eventContract.listTicketForSale(
+        selectedTicket.eventId,
+        selectedTicket.id,
+        ethers.parseEther(price.toString())
+      );
+      await tx.wait();
+
+      toast({
+        title: "Success",
+        description: "Ticket listed for sale successfully!",
+      });
+      setShowSellModal(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to list ticket for sale",
+        variant: "destructive",
+      });
+    }
   };
+
+  // Manual Refresh Button
+  const handleRefreshTickets = async () => {
+    setTicketsState(null); // Clear local state so next render uses fresh query
+    await queryClient.invalidateQueries({ queryKey: ['tickets', wallet.address] });
+    toast({ title: 'Refetch triggered', description: 'Manually triggered ticket refetch.' });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-[360px] rounded-lg bg-muted animate-pulse" />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div>
+      {/* Manual Refresh Button */}
+      <div className="mb-4 flex gap-2">
+        <Button onClick={handleRefreshTickets}>
+          Refresh Tickets
+        </Button>
+      </div>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="upcoming">Upcoming Events</TabsTrigger>
           <TabsTrigger value="past">Past Events</TabsTrigger>
           <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="upcoming" className="mt-6">
           {upcomingTickets.length === 0 ? (
             <div className="text-center py-16">
-              <Ticket className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <Tag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium">No Upcoming Tickets</h3>
               <p className="text-muted-foreground mt-2 mb-6">You don't have any tickets for upcoming events.</p>
               <Button asChild>
@@ -160,7 +264,7 @@ export function MyTicketsTab() {
             </div>
           )}
         </TabsContent>
-        
+
         <TabsContent value="past" className="mt-6">
           {pastTickets.length === 0 ? (
             <div className="text-center py-16">
@@ -185,7 +289,7 @@ export function MyTicketsTab() {
             </div>
           )}
         </TabsContent>
-        
+
         <TabsContent value="marketplace" className="mt-6">
           <div className="text-center py-16">
             <Tag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -206,32 +310,28 @@ export function MyTicketsTab() {
           <DialogHeader>
             <DialogTitle>Transfer Ticket</DialogTitle>
             <DialogDescription>
-              Enter the wallet address of the person you want to transfer this ticket to.
+              Enter the recipient's wallet address to transfer your ticket.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="mb-4">
-              <label className="text-sm font-medium mb-2 block">
-                Recipient Wallet Address
-              </label>
-              <input
-                className="w-full p-2 border rounded-md"
-                placeholder="0x..."
-              />
-            </div>
-            <div className="p-3 bg-muted rounded-md text-sm mt-2">
-              <p>
-                <strong>Note:</strong> This action cannot be undone. The ticket will be 
-                permanently transferred to the recipient's wallet.
-              </p>
-            </div>
+            <input
+              type="text"
+              placeholder="0x..."
+              className="w-full p-2 border rounded"
+              value={transferAddress}
+              onChange={(e) => setTransferAddress(e.target.value)}
+              disabled={isTransferring}
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowTransferModal(false)}>
+            <Button variant="outline" onClick={() => setShowTransferModal(false)} disabled={isTransferring}>
               Cancel
             </Button>
-            <Button onClick={handleTransfer}>
-              Transfer Ticket
+            <Button
+              onClick={handleTransfer}
+              disabled={!transferAddress || isTransferring}
+            >
+              {isTransferring ? "Transferring..." : "Transfer"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -241,40 +341,27 @@ export function MyTicketsTab() {
       <Dialog open={showSellModal} onOpenChange={setShowSellModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>List Ticket For Sale</DialogTitle>
+            <DialogTitle>List Ticket for Sale</DialogTitle>
             <DialogDescription>
-              Set your asking price for this ticket on our marketplace.
+              Set your desired price for the ticket.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="mb-4">
-              <label className="text-sm font-medium mb-2 block">
-                Listing Price (ETH)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min={selectedTicket?.price || 0}
-                className="w-full p-2 border rounded-md"
-                placeholder="0.00"
-                defaultValue={selectedTicket?.price}
-              />
-            </div>
-            <div className="p-3 bg-muted rounded-md text-sm">
-              <p>
-                <strong>Original Price:</strong> {selectedTicket?.price} ETH
-              </p>
-              <p className="mt-1">
-                <strong>Platform Fee:</strong> 2.5%
-              </p>
-            </div>
+            <input
+              type="number"
+              placeholder="0.0"
+              className="w-full p-2 border rounded"
+              onChange={(e) => {
+                // Handle price input
+              }}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSellModal(false)}>
               Cancel
             </Button>
-            <Button onClick={handleListForSale}>
-              List For Sale
+            <Button onClick={() => handleListForSale(0.1)}>
+              List for Sale
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -289,24 +376,19 @@ export function MyTicketsTab() {
               Show this QR code at the event entrance.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 flex flex-col items-center">
-            <div className="bg-white p-4 rounded-lg">
+          <div className="py-4 flex justify-center">
+            {selectedTicket && (
               <QRCodeSVG
-                value={`ticket-id:${selectedTicket?.id}`}
+                value={`${selectedTicket.eventId}-${selectedTicket.id}`}
                 size={200}
-                level="H"
               />
-            </div>
-            <div className="mt-4 text-center">
-              <h3 className="font-medium">{selectedTicket?.event.name}</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Ticket ID: #{selectedTicket?.id}
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {format(selectedTicket?.event.date || new Date(), "PPP 'at' p")}
-              </p>
-            </div>
+            )}
           </div>
+          <DialogFooter>
+            <Button onClick={() => setShowQrModal(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -314,9 +396,9 @@ export function MyTicketsTab() {
 }
 
 interface TicketCardProps {
-  ticket: typeof MOCK_TICKETS[0];
+  ticket: Ticket;
   isPast?: boolean;
-  onSelect: (ticket: typeof MOCK_TICKETS[0]) => void;
+  onSelect: (ticket: Ticket) => void;
   onShowTransfer?: () => void;
   onShowSell?: () => void;
   onShowQr: () => void;
@@ -324,86 +406,74 @@ interface TicketCardProps {
 
 function TicketCard({ ticket, isPast = false, onShowTransfer, onShowSell, onShowQr }: TicketCardProps) {
   return (
-    <motion.div
-      whileHover={{ y: -5 }}
-      transition={{ type: "spring", stiffness: 300, damping: 10 }}
-    >
-      <Card className="overflow-hidden h-full flex flex-col">
-        <div className="relative h-40 w-full">
-          <Image
-            src={ticket.event.image}
-            alt={ticket.event.name}
-            fill
-            className="object-cover"
-          />
-          {isPast && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-              <Badge variant="secondary\" className="text-lg py-1 px-3">
-                Past Event
-              </Badge>
-            </div>
-          )}
-          <div className="absolute top-2 right-2">
-            <Badge variant="secondary" className="backdrop-blur-sm bg-background/70">
-              {ticket.event.category}
-            </Badge>
-          </div>
+    <Card className="overflow-hidden">
+      <div className="relative h-48">
+        <Image
+          src={ticket.event.image}
+          alt={ticket.event.name}
+          fill
+          className="object-cover"
+        />
+        <div className="absolute top-2 right-2">
+          <Badge variant="secondary" className="backdrop-blur-sm bg-background/70">
+            {ticket.event.category}
+          </Badge>
         </div>
-        
-        <CardHeader className="pb-2">
-          <h3 className="font-semibold text-lg line-clamp-1">{ticket.event.name}</h3>
-        </CardHeader>
-        
-        <CardContent className="pb-0 text-sm space-y-2 flex-1">
-          <div className="flex items-center text-muted-foreground">
+      </div>
+
+      <CardContent className="p-4">
+        <h3 className="font-semibold mb-2">{ticket.event.name}</h3>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-center">
             <Calendar className="mr-2 h-4 w-4" />
-            {format(ticket.event.date, "EEEE, MMMM d, yyyy")}
+            {format(ticket.event.date, "MMM d, yyyy")}
           </div>
-          <div className="flex items-center text-muted-foreground">
+          <div className="flex items-center">
             <Clock className="mr-2 h-4 w-4" />
             {format(ticket.event.date, "h:mm a")}
           </div>
-          <div className="flex items-center text-muted-foreground">
+          <div className="flex items-center">
             <MapPin className="mr-2 h-4 w-4" />
             {ticket.event.location}
           </div>
-          
-          {ticket.forSale && (
-            <Badge variant="secondary" className="bg-primary/10 text-primary">
-              Listed for {ticket.resalePrice} ETH
-            </Badge>
-          )}
-        </CardContent>
-        
-        <CardFooter className="pt-4 pb-4 flex justify-between">
-          <Button variant="outline" size="sm" onClick={onShowQr}>
-            <QrCode className="mr-2 h-4 w-4" />
-            View Ticket
-          </Button>
-          
-          {!isPast && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Ticket Options</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+        </div>
+      </CardContent>
+
+      <CardFooter className="p-4 border-t bg-muted/30">
+        <div className="flex items-center justify-between w-full">
+          <div className="text-sm">
+            <span className="text-muted-foreground">Ticket ID: </span>
+            <span className="font-medium">{ticket.id}</span>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onShowQr}>
+                <QrCode className="mr-2 h-4 w-4" />
+                Show QR Code
+              </DropdownMenuItem>
+              {!isPast && onShowTransfer && (
                 <DropdownMenuItem onClick={onShowTransfer}>
                   <Send className="mr-2 h-4 w-4" />
                   Transfer Ticket
                 </DropdownMenuItem>
+              )}
+              {!isPast && onShowSell && (
                 <DropdownMenuItem onClick={onShowSell}>
                   <Tag className="mr-2 h-4 w-4" />
-                  {ticket.forSale ? "Update Price" : "List for Sale"}
+                  List for Sale
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </CardFooter>
-      </Card>
-    </motion.div>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </CardFooter>
+    </Card>
   );
 }

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
+import "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 
 contract EventContract is Ownable {
-    using Counters for Counters.Counter;
-    Counters.Counter private _eventIds;
+    constructor() Ownable(msg.sender) {}
+
+    uint256 private _eventIds;
 
     struct Event {
         uint256 id;
@@ -19,6 +19,7 @@ contract EventContract is Ownable {
         uint256 ticketsSold;
         bool isActive;
         address creator;
+        string image;
     }
 
     mapping(uint256 => Event) public events;
@@ -28,20 +29,26 @@ contract EventContract is Ownable {
     event EventUpdated(uint256 indexed eventId);
     event EventCancelled(uint256 indexed eventId);
 
+    modifier onlyCreator(uint256 eventId) {
+        require(events[eventId].creator == msg.sender, "Only creator can update event");
+        _;
+    }
+
     function createEvent(
         string memory name,
         string memory description,
         uint256 date,
         string memory location,
         uint256 price,
-        uint256 maxTickets
+        uint256 maxTickets,
+        string memory image
     ) public returns (uint256) {
         require(date > block.timestamp, "Event date must be in the future");
         require(maxTickets > 0, "Max tickets must be greater than 0");
         require(price > 0, "Price must be greater than 0");
 
-        _eventIds.increment();
-        uint256 newEventId = _eventIds.current();
+        _eventIds += 1;
+        uint256 newEventId = _eventIds;
 
         events[newEventId] = Event({
             id: newEventId,
@@ -53,13 +60,19 @@ contract EventContract is Ownable {
             maxTickets: maxTickets,
             ticketsSold: 0,
             isActive: true,
-            creator: msg.sender
+            creator: msg.sender,
+            image: image
         });
 
         creatorEvents[msg.sender].push(newEventId);
-
         emit EventCreated(newEventId, msg.sender);
         return newEventId;
+    }
+
+    function incrementTicketsSold(uint256 eventId) external {
+        Event storage event_ = events[eventId];
+        require(event_.ticketsSold < event_.maxTickets, "All tickets sold");
+        event_.ticketsSold += 1;
     }
 
     function getEventDetails(uint256 eventId) public view returns (Event memory) {
@@ -77,8 +90,8 @@ contract EventContract is Ownable {
         uint256 maxTickets
     ) external onlyCreator(eventId) {
         require(date > block.timestamp, "Event date must be in the future");
-        require(maxTickets >= events[eventId].ticketsSold, "Max tickets cannot be less than tickets sold");
-        require(price > 0, "Price must be greater than 0");
+        require(maxTickets >= events[eventId].ticketsSold, "Max tickets less than sold");
+        require(price > 0, "Price must be > 0");
 
         Event storage event_ = events[eventId];
         event_.name = name;
@@ -91,9 +104,8 @@ contract EventContract is Ownable {
         emit EventUpdated(eventId);
     }
 
-    function cancelEvent(uint256 eventId) public {
-        require(events[eventId].creator == msg.sender, "Only creator can cancel event");
-        require(events[eventId].isActive, "Event is already cancelled");
+    function cancelEvent(uint256 eventId) public onlyCreator(eventId) {
+        require(events[eventId].isActive, "Event already cancelled");
 
         events[eventId].isActive = false;
         emit EventCancelled(eventId);
@@ -102,4 +114,12 @@ contract EventContract is Ownable {
     function getCreatorEvents(address creator) public view returns (uint256[] memory) {
         return creatorEvents[creator];
     }
-} 
+
+    function getAllEvents() public view returns (uint256[] memory) {
+        uint256[] memory ids = new uint256[](_eventIds);
+        for (uint256 i = 1; i <= _eventIds; i++) {
+            ids[i - 1] = i;
+        }
+        return ids;
+    }
+}

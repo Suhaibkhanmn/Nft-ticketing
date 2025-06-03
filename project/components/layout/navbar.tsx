@@ -5,15 +5,16 @@ import { useState, useEffect } from "react";
 import { useWeb3 } from "@/providers/web3-provider";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/theme/mode-toggle";
-import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger } from "@/components/ui/navigation-menu";
+import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from "@/components/ui/navigation-menu";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { Menu, X, Ticket, Calendar, CircleDollarSign, UserCircle } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Menu, X, Ticket, Calendar, UserCircle } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { usePathname } from "next/navigation";
 
 export default function Navbar() {
   const { wallet, connect, disconnect } = useWeb3();
+  console.log('Navbar wallet state:', wallet);
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
@@ -30,8 +31,6 @@ export default function Navbar() {
 
   const navLinks = [
     { name: "Events", href: "/events", icon: Calendar },
-    { name: "Create Event", href: "/events/create", icon: Calendar },
-    { name: "My Tickets", href: "/tickets", icon: Ticket },
     { name: "Dashboard", href: "/dashboard", icon: UserCircle },
   ];
 
@@ -39,7 +38,7 @@ export default function Navbar() {
     <header
       className={cn(
         "sticky top-0 z-50 w-full transition-colors duration-300",
-        isScrolled 
+        isScrolled
           ? "bg-background/80 backdrop-blur-md border-b"
           : "bg-transparent"
       )}
@@ -87,7 +86,7 @@ export default function Navbar() {
           {/* Actions */}
           <div className="flex items-center space-x-4">
             <ModeToggle />
-            
+
             {/* Wallet Connect Button */}
             {!wallet.isConnected ? (
               <Button
@@ -155,7 +154,7 @@ export default function Navbar() {
                 {link.name}
               </Link>
             ))}
-            
+
             {!wallet.isConnected && (
               <Button
                 onClick={connect}

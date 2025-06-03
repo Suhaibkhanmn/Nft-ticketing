@@ -30,8 +30,8 @@ const defaultContext: Web3ContextType = {
     chainId: null,
     balance: null,
   },
-  connect: async () => {},
-  disconnect: () => {},
+  connect: async () => { },
+  disconnect: () => { },
 };
 
 const Web3Context = createContext<Web3ContextType>(defaultContext);
@@ -43,26 +43,56 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
   const { toast } = useToast();
 
   const connect = async () => {
+    // Step 1: Check for Ethereum provider
     if (!window.ethereum) {
+      console.log('No window.ethereum detected');
       toast({
         title: "Wallet Not Found",
         description: "Please install MetaMask or another compatible wallet",
         variant: "destructive"
       });
+      setWallet(prev => ({ ...prev, isConnecting: false, isConnected: false }));
       return;
     }
 
+    setWallet(prev => ({ ...prev, isConnecting: true }));
+    console.log('Connecting to wallet...');
+
     try {
-      setWallet(prev => ({ ...prev, isConnecting: true }));
-      
+      // Step 2: Create provider
       const provider = new ethers.BrowserProvider(window.ethereum);
+      console.log('Provider created:', provider);
+
+      // Step 3: Request accounts
       const accounts = await provider.send("eth_requestAccounts", []);
+      console.log('Accounts:', accounts);
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts returned from wallet');
+      }
+
+      // Step 4: Get signer and address
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
+      console.log('Signer:', signer);
+      console.log('Address:', address);
+
+      // Step 5: Get network and balance
       const network = await provider.getNetwork();
       const balance = ethers.formatEther(await provider.getBalance(address));
+      console.log('Network:', network);
+      console.log('Balance:', balance);
 
+      // Step 6: Set wallet state
       setWallet({
+        address,
+        provider,
+        signer,
+        isConnected: true,
+        isConnecting: false,
+        chainId: Number(network.chainId),
+        balance,
+      });
+      console.log('Wallet connected:', {
         address,
         provider,
         signer,
@@ -76,13 +106,12 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
         title: "Wallet Connected",
         description: `Connected to ${address.substring(0, 6)}...${address.substring(38)}`,
       });
-
     } catch (error) {
       console.error("Connection error:", error);
-      setWallet(prev => ({ ...prev, isConnecting: false }));
+      setWallet(prev => ({ ...prev, isConnecting: false, isConnected: false }));
       toast({
         title: "Connection Failed",
-        description: "Failed to connect wallet",
+        description: error instanceof Error ? error.message : "Failed to connect wallet",
         variant: "destructive",
       });
     }
@@ -102,7 +131,7 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
         try {
           const provider = new ethers.BrowserProvider(window.ethereum);
           const accounts = await provider.listAccounts();
-          
+
           if (accounts.length > 0) {
             const signer = await provider.getSigner();
             const address = await signer.getAddress();

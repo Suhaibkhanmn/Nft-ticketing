@@ -4,19 +4,43 @@ import { useState } from "react";
 import { useWeb3 } from "@/providers/web3-provider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
 import { MyEventsTab } from "@/components/dashboard/my-events-tab";
 import { MyTicketsTab } from "@/components/dashboard/my-tickets-tab";
-import { UserProfileSection } from "@/components/dashboard/user-profile-section";
-import { Wallet, Ticket, Calendar, BarChart3, ArrowRight } from "lucide-react";
+import { Wallet, Ticket, Calendar } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { getEventContract, getTicketContract } from "@/lib/contracts";
+import { ethers } from "ethers";
 
 export function DashboardContent() {
   const { wallet, connect } = useWeb3();
-  
+
+  // Real-time tickets owned
+  const { data: ticketCount } = useQuery({
+    queryKey: ["ticketCount", wallet.address],
+    queryFn: async () => {
+      if (!wallet.signer || !wallet.address) return 0;
+      const ticketContract = getTicketContract(wallet.signer);
+      const ticketIds: bigint[] = await ticketContract.getUserTickets(wallet.address);
+      return ticketIds.length;
+    },
+    enabled: !!wallet.signer && !!wallet.address,
+  });
+
+  // Real-time events created
+  const { data: eventCount } = useQuery({
+    queryKey: ["eventCount", wallet.address],
+    queryFn: async () => {
+      if (!wallet.signer || !wallet.address) return 0;
+      const eventContract = getEventContract(wallet.signer);
+      const eventIds: bigint[] = await eventContract.getCreatorEvents(wallet.address);
+      return eventIds.length;
+    },
+    enabled: !!wallet.signer && !!wallet.address,
+  });
+  console.log('eventCount:', eventCount);
+
   if (!wallet.isConnected) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -45,7 +69,7 @@ export function DashboardContent() {
         </Avatar>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -58,7 +82,7 @@ export function DashboardContent() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -66,10 +90,12 @@ export function DashboardContent() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">7</div>
+            <div className="text-2xl font-bold">
+              {ticketCount !== undefined ? ticketCount : "Loading..."}
+            </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -77,63 +103,10 @@ export function DashboardContent() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">2</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Ticket Sales
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">0.45 ETH</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Event Performance</CardTitle>
-            <CardDescription>Your event ticket sales and activity</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[300px] flex items-center justify-center">
-            <div className="text-muted-foreground">Event performance chart will be displayed here</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader>
-            <CardTitle>Upcoming Events</CardTitle>
-          </CardHeader>
-          <CardContent className="px-2">
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-start gap-3 p-2 hover:bg-muted/50 rounded">
-                  <div className="bg-primary/10 rounded p-2">
-                    <Calendar className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="font-medium">Crypto Music Festival</div>
-                    <div className="text-sm text-muted-foreground flex items-center">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      Jul 15, 2025
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="text-2xl font-bold">
+              {eventCount !== undefined ? eventCount : 0}
             </div>
           </CardContent>
-          <CardFooter className="border-t p-4">
-            <Button variant="ghost" size="sm" className="w-full" asChild>
-              <a href="/events">
-                View All
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </a>
-            </Button>
-          </CardFooter>
         </Card>
       </div>
 
@@ -147,22 +120,14 @@ export function DashboardContent() {
             <Calendar className="mr-2 h-4 w-4" />
             My Events
           </TabsTrigger>
-          <TabsTrigger value="profile" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <BarChart3 className="mr-2 h-4 w-4" />
-            Profile
-          </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="tickets">
           <MyTicketsTab />
         </TabsContent>
-        
+
         <TabsContent value="events">
           <MyEventsTab />
-        </TabsContent>
-        
-        <TabsContent value="profile">
-          <UserProfileSection />
         </TabsContent>
       </Tabs>
     </div>

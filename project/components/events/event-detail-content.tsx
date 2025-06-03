@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useEventQuery } from "@/hooks/use-events";
+import { useEventQuery, usePurchaseTicket } from "@/hooks/use-events";
 import { useWeb3 } from "@/providers/web3-provider";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
@@ -24,6 +24,7 @@ import { Calendar, Clock, MapPin, Users, Ticket, Share2, Heart, Info, AlertCircl
 import { Skeleton } from "@/components/ui/skeleton";
 import Image from "next/image";
 import Link from "next/link";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 interface EventDetailContentProps {
   id: string;
@@ -35,9 +36,11 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
   const [ticketQuantity, setTicketQuantity] = useState(1);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
   const { toast } = useToast();
+  const purchaseTicket = usePurchaseTicket();
 
-  // Handle purchase
+  // Handle purchase using contract
   const handlePurchase = async () => {
     if (!wallet.isConnected) {
       toast({
@@ -47,18 +50,25 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
       });
       return;
     }
-
+    if (!event) {
+      toast({
+        title: "Event Not Loaded",
+        description: "Event data is missing. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsPurchasing(true);
-    
     try {
-      // Simulate blockchain transaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      await purchaseTicket.mutateAsync({
+        eventId: event.id,
+        price: event.price * ticketQuantity,
+        quantity: ticketQuantity,
+      });
       toast({
         title: "Purchase Successful!",
-        description: `You've successfully purchased ${ticketQuantity} ticket${ticketQuantity > 1 ? 's' : ''} for ${event?.name}`,
+        description: `You've successfully purchased ${ticketQuantity} ticket${ticketQuantity > 1 ? 's' : ''} for ${event.name}`,
       });
-      
       setShowPurchaseModal(false);
     } catch (error) {
       toast({
@@ -71,6 +81,20 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
     }
   };
 
+  // Handle share
+  const handleShare = () => {
+    if (typeof window !== "undefined") {
+      navigator.clipboard.writeText(window.location.href);
+      toast({ title: "Link copied to clipboard!" });
+    }
+  };
+
+  // Handle favorite
+  const handleFavorite = () => {
+    setIsFavorited((fav) => !fav);
+    toast({ title: isFavorited ? "Removed from favorites" : "Added to favorites" });
+  };
+
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -80,7 +104,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
             Back to Events
           </Link>
         </div>
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
             <Skeleton className="h-[400px] w-full rounded-xl" />
@@ -113,10 +137,10 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
 
   const formattedDate = format(event.date, "EEEE, MMMM d, yyyy");
   const formattedTime = format(event.date, "h:mm a");
-  
+
   const totalCost = event.price * ticketQuantity;
   const maxQuantity = Math.min(event.remainingTickets, 10); // Limit to 10 tickets per purchase
-  
+
   // Calculate ticket availability percentage
   const availabilityPercentage = (event.remainingTickets / event.maxTickets) * 100;
 
@@ -128,7 +152,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
           Back to Events
         </Link>
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
           <motion.div
@@ -145,16 +169,16 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                 className="object-cover"
               />
             </div>
-            
+
             <div className="flex flex-wrap gap-2 mt-6">
               <Badge variant="outline">{event.category}</Badge>
               {event.tags.map((tag) => (
                 <Badge key={tag} variant="secondary">{tag}</Badge>
               ))}
             </div>
-            
+
             <h1 className="text-3xl md:text-4xl font-bold mt-6">{event.name}</h1>
-            
+
             <div className="flex flex-wrap gap-6 mt-6 text-muted-foreground">
               <div className="flex items-center">
                 <Calendar className="mr-2 h-5 w-5" />
@@ -185,8 +209,8 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                   <p className="text-lg">{event.description}</p>
                   <h3>About This Event</h3>
                   <p>
-                    Join us for an unforgettable experience at {event.name}. This event will feature amazing performances, 
-                    networking opportunities, and much more. Your NFT ticket gives you access to all areas of the event, 
+                    Join us for an unforgettable experience at {event.name}. This event will feature amazing performances,
+                    networking opportunities, and much more. Your NFT ticket gives you access to all areas of the event,
                     as well as exclusive perks only available to ticket holders.
                   </p>
                   <h3>What to Expect</h3>
@@ -232,18 +256,18 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                 </div>
               </TabsContent>
             </Tabs>
-            
+
             <div className="flex gap-4 mt-8">
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" onClick={handleShare}>
                 <Share2 className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="icon">
-                <Heart className="h-4 w-4" />
+              <Button variant={isFavorited ? "default" : "outline"} size="icon" onClick={handleFavorite}>
+                <Heart className={`h-4 w-4 ${isFavorited ? "text-red-500 fill-red-500" : ""}`} />
               </Button>
             </div>
           </motion.div>
         </div>
-        
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -270,7 +294,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                     <span>{event.remainingTickets} of {event.maxTickets}</span>
                   </div>
                   <div className="w-full bg-secondary rounded-full h-2 mt-2 overflow-hidden">
-                    <motion.div 
+                    <motion.div
                       className="bg-primary h-2 rounded-full"
                       initial={{ width: 0 }}
                       animate={{ width: `${availabilityPercentage}%` }}
@@ -278,7 +302,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                     />
                   </div>
                 </div>
-                
+
                 <div className="p-4 bg-muted/50 rounded-lg text-sm flex items-center">
                   <Info className="h-5 w-5 mr-3 text-primary shrink-0" />
                   <p>This ticket is an NFT that will be sent to your connected wallet address after purchase.</p>
@@ -286,7 +310,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
               </div>
             </CardContent>
             <CardFooter>
-              <Button 
+              <Button
                 className="w-full"
                 size="lg"
                 onClick={() => setShowPurchaseModal(true)}
@@ -309,7 +333,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
               You're about to purchase NFT tickets for {event.name}
             </DialogDescription>
           </DialogHeader>
-          
+
           {!wallet.isConnected ? (
             <div className="py-6 flex flex-col items-center">
               <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
@@ -350,7 +374,7 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                     </Button>
                   </div>
                 </div>
-                
+
                 <div className="pt-2">
                   <div className="flex justify-between mb-1">
                     <span>Price per ticket:</span>
@@ -365,11 +389,11 @@ export function EventDetailContent({ id }: EventDetailContentProps) {
                     <span>{(event.price * ticketQuantity).toFixed(3)} {event.currency}</span>
                   </div>
                 </div>
-                
+
                 <div className="bg-muted p-3 rounded text-sm mt-2 flex">
                   <Info className="h-5 w-5 mr-2 shrink-0" />
                   <p>
-                    By purchasing, you agree to our terms and understand that this NFT ticket 
+                    By purchasing, you agree to our terms and understand that this NFT ticket
                     will be minted directly to your connected wallet address.
                   </p>
                 </div>

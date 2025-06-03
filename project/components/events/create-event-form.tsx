@@ -7,8 +7,11 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useWeb3 } from "@/providers/web3-provider";
 import { useRouter } from "next/navigation";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "../ui/use-toast";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+import { ethers } from "ethers";
+import { getEventContract } from "@/lib/contracts";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,7 +41,7 @@ import {
 } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { CalendarIcon, Clock, Upload } from "lucide-react";
+import { CalendarIcon, Clock, Upload, MapPin } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().min(3, "Event name must be at least 3 characters"),
@@ -67,7 +70,7 @@ export function CreateEventForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -98,40 +101,75 @@ export function CreateEventForm() {
       reader.readAsDataURL(file);
     }
   };
-  
-  const onSubmit = async (values: FormValues) => {
-    if (!wallet.isConnected) {
-      toast({
-        title: "Wallet Not Connected",
-        description: "Please connect your wallet to create an event",
-        variant: "destructive",
-      });
-      return;
-    }
 
+  const onSubmit = async (values: FormValues) => {
+    console.log('onSubmit called with values:', values);
     setIsSubmitting(true);
-    
     try {
-      // Simulate blockchain transaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Success
+      if (!wallet.isConnected || !wallet.signer) {
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your wallet to create an event",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      const eventTimestamp = Math.floor(new Date(`${values.date.toDateString()} ${values.time}`).getTime() / 1000);
+      const now = Math.floor(Date.now() / 1000);
+      console.log("Event timestamp (seconds):", eventTimestamp, "Current time (seconds):", now);
+      if (eventTimestamp <= now + 300) { // 5 minutes buffer
+        toast({
+          title: "Invalid Event Date",
+          description: "Event date and time must be at least 5 minutes in the future.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      const eventContract = getEventContract(wallet.signer);
+      console.log('Calling contract.createEvent with:', values);
+      const tx = await eventContract.createEvent(
+        values.name,
+        values.description,
+        eventTimestamp,
+        values.location,
+        ethers.parseEther(values.price.toString()),
+        values.maxTickets,
+        values.imageUrl || ""
+      );
+      await tx.wait();
       toast({
         title: "Event Created Successfully!",
         description: "Your event has been created and tickets are ready to be minted",
       });
-      
-      // Redirect to event page (in a real app, would redirect to the newly created event)
       router.push("/events");
     } catch (error) {
+      console.error('Error in onSubmit:', error);
       toast({
         title: "Creation Failed",
-        description: "There was an error creating your event",
+        description: error instanceof Error ? error.message : "There was an error creating your event",
         variant: "destructive",
       });
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Scroll to first error if validation fails and show a toast
+  const handleInvalid = (errors: any) => {
+    const firstErrorField = Object.keys(errors)[0];
+    if (firstErrorField) {
+      const el = document.querySelector(`[name="${firstErrorField}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+    toast({
+      title: "Form Error",
+      description: "Please fill in all required fields correctly before submitting.",
+      variant: "destructive",
+    });
   };
 
   if (!wallet.isConnected) {
@@ -154,31 +192,29 @@ export function CreateEventForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={form.handleSubmit(onSubmit, handleInvalid)} className="space-y-8">
         {/* Step indicator */}
         <div className="flex items-center mb-8">
           {[1, 2, 3].map((step) => (
             <div key={step} className="flex items-center">
               <div
-                className={`rounded-full h-10 w-10 flex items-center justify-center font-medium ${
-                  currentStep >= step
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground"
-                }`}
+                className={`rounded-full h-10 w-10 flex items-center justify-center font-medium ${currentStep >= step
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground"
+                  }`}
               >
                 {step}
               </div>
               {step < 3 && (
                 <div
-                  className={`h-1 w-10 sm:w-20 ${
-                    currentStep > step ? "bg-primary" : "bg-secondary"
-                  }`}
+                  className={`h-1 w-10 sm:w-20 ${currentStep > step ? "bg-primary" : "bg-secondary"
+                    }`}
                 />
               )}
             </div>
           ))}
         </div>
-        
+
         {/* Step 1: Basic Information */}
         {currentStep === 1 && (
           <motion.div
@@ -188,7 +224,7 @@ export function CreateEventForm() {
           >
             <div className="grid gap-6">
               <h2 className="text-2xl font-semibold">Basic Information</h2>
-              
+
               <FormField
                 control={form.control}
                 name="name"
@@ -202,7 +238,7 @@ export function CreateEventForm() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="description"
@@ -210,17 +246,17 @@ export function CreateEventForm() {
                   <FormItem>
                     <FormLabel>Description</FormLabel>
                     <FormControl>
-                      <Textarea 
-                        placeholder="Describe your event" 
-                        className="min-h-[120px]" 
-                        {...field} 
+                      <Textarea
+                        placeholder="Describe your event"
+                        className="min-h-[120px]"
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
@@ -249,7 +285,7 @@ export function CreateEventForm() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="location"
@@ -264,7 +300,7 @@ export function CreateEventForm() {
                   )}
                 />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
@@ -305,7 +341,7 @@ export function CreateEventForm() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="time"
@@ -315,10 +351,10 @@ export function CreateEventForm() {
                       <FormControl>
                         <div className="flex items-center border rounded-md focus-within:ring-1 focus-within:ring-ring">
                           <Clock className="ml-3 h-4 w-4 text-muted-foreground" />
-                          <Input 
-                            type="time" 
-                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0" 
-                            {...field} 
+                          <Input
+                            type="time"
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                            {...field}
                           />
                         </div>
                       </FormControl>
@@ -327,7 +363,7 @@ export function CreateEventForm() {
                   )}
                 />
               </div>
-              
+
               <FormField
                 control={form.control}
                 name="tags"
@@ -344,7 +380,7 @@ export function CreateEventForm() {
                   </FormItem>
                 )}
               />
-              
+
               <div className="flex justify-end">
                 <Button type="button" onClick={() => setCurrentStep(2)}>
                   Next Step
@@ -353,7 +389,7 @@ export function CreateEventForm() {
             </div>
           </motion.div>
         )}
-        
+
         {/* Step 2: Ticket Information */}
         {currentStep === 2 && (
           <motion.div
@@ -363,7 +399,7 @@ export function CreateEventForm() {
           >
             <div className="grid gap-6">
               <h2 className="text-2xl font-semibold">Ticket Information</h2>
-              
+
               <FormField
                 control={form.control}
                 name="maxTickets"
@@ -371,8 +407,8 @@ export function CreateEventForm() {
                   <FormItem>
                     <FormLabel>Maximum Tickets</FormLabel>
                     <FormControl>
-                      <Input 
-                        type="number" 
+                      <Input
+                        type="number"
                         min="1"
                         {...field}
                         onChange={e => field.onChange(Number(e.target.value))}
@@ -385,7 +421,7 @@ export function CreateEventForm() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="price"
@@ -422,10 +458,10 @@ export function CreateEventForm() {
                   </FormItem>
                 )}
               />
-              
+
               <div className="space-y-4">
                 <h3 className="text-lg font-medium">Advanced Options</h3>
-                
+
                 <FormField
                   control={form.control}
                   name="advancedOptions.transferable"
@@ -446,7 +482,7 @@ export function CreateEventForm() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="advancedOptions.resellable"
@@ -467,7 +503,7 @@ export function CreateEventForm() {
                     </FormItem>
                   )}
                 />
-                
+
                 {form.watch("advancedOptions.resellable") && (
                   <FormField
                     control={form.control}
@@ -476,9 +512,9 @@ export function CreateEventForm() {
                       <FormItem>
                         <FormLabel>Max Resell Price Multiplier</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="number" 
-                            min="1" 
+                          <Input
+                            type="number"
+                            min="1"
                             placeholder="e.g. 2 for 2x original price"
                             {...field}
                             onChange={e => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
@@ -492,7 +528,7 @@ export function CreateEventForm() {
                   />
                 )}
               </div>
-              
+
               <div className="flex justify-between">
                 <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>
                   Previous Step
@@ -504,7 +540,7 @@ export function CreateEventForm() {
             </div>
           </motion.div>
         )}
-        
+
         {/* Step 3: Upload Image & Preview */}
         {currentStep === 3 && (
           <motion.div
@@ -514,7 +550,7 @@ export function CreateEventForm() {
           >
             <div className="grid gap-6">
               <h2 className="text-2xl font-semibold">Event Image & Preview</h2>
-              
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                   <FormItem>
@@ -554,7 +590,7 @@ export function CreateEventForm() {
                     </FormDescription>
                   </FormItem>
                 </div>
-                
+
                 <div>
                   <h3 className="text-lg font-medium mb-4">Event Preview</h3>
                   <Card className="overflow-hidden">
@@ -592,30 +628,30 @@ export function CreateEventForm() {
                   </Card>
                 </div>
               </div>
-              
+
               <div className="bg-muted p-4 rounded-lg mt-4">
                 <h3 className="font-medium mb-2">Summary</h3>
                 <div className="grid grid-cols-2 gap-y-2 text-sm">
                   <div>Event Name:</div>
                   <div>{form.watch("name")}</div>
-                  
+
                   <div>Date & Time:</div>
                   <div>{format(form.watch("date"), "PPP")} at {form.watch("time")}</div>
-                  
+
                   <div>Location:</div>
                   <div>{form.watch("location")}</div>
-                  
+
                   <div>Category:</div>
                   <div className="capitalize">{form.watch("category")}</div>
-                  
+
                   <div>Tickets Available:</div>
                   <div>{form.watch("maxTickets")}</div>
-                  
+
                   <div>Price per Ticket:</div>
                   <div>{form.watch("price")} ETH</div>
                 </div>
               </div>
-              
+
               <div className="flex justify-between">
                 <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>
                   Previous Step

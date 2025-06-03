@@ -1,125 +1,244 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { EventType } from "@/types/events";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useWeb3 } from "@/providers/web3-provider";
+import { getEventContract, getTicketContract } from "@/lib/contracts";
+import { useToast } from "@/hooks/use-toast";
+import { ethers } from "ethers";
 
-// Mock events data - in a real application, this would come from your API/blockchain
-const MOCK_EVENTS: EventType[] = [
-  {
-    id: "1",
-    name: "Crypto Music Festival 2025",
-    description: "The biggest blockchain music festival of the year",
-    date: new Date("2025-07-15T18:00:00"),
-    location: "Miami, FL",
-    price: 0.05,
-    currency: "ETH",
-    maxTickets: 1000,
-    remainingTickets: 650,
-    image: "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-    organizer: "0x1234567890123456789012345678901234567890",
-    category: "music",
-    tags: ["music", "festival", "crypto"],
-  },
-  {
-    id: "2",
-    name: "Blockchain Developer Conference",
-    description: "Annual conference for blockchain developers",
-    date: new Date("2025-08-10T09:00:00"),
-    location: "San Francisco, CA",
-    price: 0.1,
-    currency: "ETH",
-    maxTickets: 500,
-    remainingTickets: 203,
-    image: "https://images.pexels.com/photos/7688336/pexels-photo-7688336.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-    organizer: "0x1234567890123456789012345678901234567890",
-    category: "conference",
-    tags: ["tech", "blockchain", "developers"],
-  },
-  {
-    id: "3",
-    name: "Crypto NBA All-Star Game",
-    description: "Special NBA game with NFT ticket holders perks",
-    date: new Date("2025-02-15T19:30:00"),
-    location: "Los Angeles, CA",
-    price: 0.15,
-    currency: "ETH",
-    maxTickets: 20000,
-    remainingTickets: 8542,
-    image: "https://images.pexels.com/photos/945471/pexels-photo-945471.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-    organizer: "0x1234567890123456789012345678901234567890",
-    category: "sports",
-    tags: ["sports", "basketball", "nba"],
-  },
-  {
-    id: "4",
-    name: "Digital Art Exhibition",
-    description: "Exclusive NFT art exhibition featuring top artists",
-    date: new Date("2025-09-05T11:00:00"),
-    location: "New York, NY",
-    price: 0.03,
-    currency: "ETH",
-    maxTickets: 300,
-    remainingTickets: 124,
-    image: "https://images.pexels.com/photos/2570059/pexels-photo-2570059.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-    organizer: "0x1234567890123456789012345678901234567890",
-    category: "exhibition",
-    tags: ["art", "nft", "digital"],
-  },
-  {
-    id: "5",
-    name: "Web3 Summit",
-    description: "Global summit for Web3 enthusiasts and developers",
-    date: new Date("2025-10-22T10:00:00"),
-    location: "Berlin, Germany",
-    price: 0.08,
-    currency: "ETH",
-    maxTickets: 1500,
-    remainingTickets: 872,
-    image: "https://images.pexels.com/photos/2774556/pexels-photo-2774556.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-    organizer: "0x1234567890123456789012345678901234567890",
-    category: "conference",
-    tags: ["web3", "blockchain", "developers"],
-  },
-  {
-    id: "6",
-    name: "Decentralized Comedy Night",
-    description: "Stand-up comedy show for crypto enthusiasts",
-    date: new Date("2025-05-30T20:00:00"),
-    location: "Austin, TX",
-    price: 0.02,
-    currency: "ETH",
-    maxTickets: 200,
-    remainingTickets: 43,
-    image: "https://images.pexels.com/photos/713149/pexels-photo-713149.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
-    organizer: "0x1234567890123456789012345678901234567890",
-    category: "music",
-    tags: ["comedy", "entertainment", "crypto"],
-  },
-];
-
-// Function to fetch events - in a production app, this would call your API
-const fetchEvents = async (): Promise<EventType[]> => {
-  // Simulate API delay
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  return MOCK_EVENTS;
+export type EventType = {
+  id: string;
+  name: string;
+  description: string;
+  date: Date;
+  location: string;
+  price: number;
+  currency: string;
+  maxTickets: number;
+  remainingTickets: number;
+  image: string;
+  organizer: string;
+  category: string;
+  tags: string[];
 };
 
-export function useEventsQuery() {
+// Function to fetch events from the contract
+const fetchEvents = async (signer: ethers.Signer): Promise<EventType[]> => {
+  const eventContract = getEventContract(signer);
+  const eventIds = await eventContract.getAllEvents();
+  console.log('Fetched eventIds:', eventIds.map((e: any) => e.toString()));
+
+  const events: EventType[] = [];
+  for (const eventId of eventIds) {
+    console.log('Trying eventId:', eventId.toString());
+    try {
+      if (eventId.toString() === "0") continue;
+      const event = await eventContract.getEventDetails(eventId.toString());
+      console.log('Fetched event:', event);
+      if (!event.name || event.id.toString() === "0") continue;
+      events.push({
+        id: event.id.toString(),
+        name: event.name,
+        description: event.description,
+        date: new Date(Number(event.date) * 1000),
+        location: event.location,
+        price: Number(ethers.formatEther(event.price)),
+        currency: "ETH",
+        maxTickets: Number(event.maxTickets),
+        remainingTickets: Number(event.maxTickets) - Number(event.ticketsSold),
+        image: event.image || "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
+        organizer: event.creator,
+        category: "music",
+        tags: ["event", "nft"],
+      });
+    } catch (err) {
+      console.error('Error fetching eventId', eventId.toString(), err);
+      continue;
+    }
+  }
+  console.log('Final events array:', events);
+  return events.sort((a, b) => Number(b.id) - Number(a.id));
+};
+
+export function useEventsQuery(filterByCreator: boolean = false) {
+  const { wallet } = useWeb3();
+
   return useQuery({
-    queryKey: ['events'],
-    queryFn: fetchEvents,
+    queryKey: ['events', filterByCreator, wallet.address],
+    queryFn: async () => {
+      if (!wallet.signer || !wallet.address) throw new Error("Wallet not connected");
+      const eventContract = getEventContract(wallet.signer);
+      const eventIds = filterByCreator
+        ? await eventContract.getCreatorEvents(wallet.address)
+        : await eventContract.getAllEvents();
+
+      const events: EventType[] = [];
+      for (const eventId of eventIds) {
+        try {
+          if (eventId.toString() === "0") continue;
+          const event = await eventContract.getEventDetails(eventId.toString());
+          if (!event.name || event.id.toString() === "0") continue;
+
+          // If filtering by creator, only include events created by the current user
+          if (filterByCreator && event.creator.toLowerCase() !== wallet.address.toLowerCase()) continue;
+
+          events.push({
+            id: event.id.toString(),
+            name: event.name,
+            description: event.description,
+            date: new Date(Number(event.date) * 1000),
+            location: event.location,
+            price: Number(ethers.formatEther(event.price)),
+            currency: "ETH",
+            maxTickets: Number(event.maxTickets),
+            remainingTickets: Number(event.maxTickets) - Number(event.ticketsSold),
+            image: event.image || "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
+            organizer: event.creator,
+            category: "music",
+            tags: ["event", "nft"],
+          });
+        } catch (err) {
+          console.error('Error fetching eventId', eventId.toString(), err);
+          continue;
+        }
+      }
+      return events.sort((a, b) => Number(b.id) - Number(a.id));
+    },
+    enabled: !!wallet.signer && !!wallet.address,
   });
 }
 
 export function useEventQuery(id: string) {
+  const { wallet } = useWeb3();
+
   return useQuery({
     queryKey: ['event', id],
     queryFn: async () => {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const event = MOCK_EVENTS.find(e => e.id === id);
-      if (!event) throw new Error(`Event with id ${id} not found`);
-      return event;
+      if (!wallet.signer) throw new Error("Wallet not connected");
+      const eventContract = getEventContract(wallet.signer);
+      const event = await eventContract.getEventDetails(id);
+      return {
+        id: event.id.toString(),
+        name: event.name,
+        description: event.description,
+        date: new Date(Number(event.date) * 1000),
+        location: event.location,
+        price: Number(ethers.formatEther(event.price)),
+        currency: "ETH",
+        maxTickets: Number(event.maxTickets),
+        remainingTickets: Number(event.maxTickets) - Number(event.ticketsSold),
+        image: event.image || "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
+        organizer: event.creator,
+        category: "music",
+        tags: ["event", "nft"],
+      };
     },
+    enabled: !!wallet.signer,
+  });
+}
+
+export function usePurchaseTicket() {
+  const { wallet } = useWeb3();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ eventId, price, quantity }: { eventId: string; price: number; quantity: number }) => {
+      if (!wallet.signer) throw new Error("Wallet not connected");
+      const ticketContract = getTicketContract(wallet.signer);
+      // Call bulkMintTickets for multiple tickets
+      const tx = await ticketContract.bulkMintTickets(eventId, quantity, {
+        value: ethers.parseEther(price.toString()),
+      });
+      await tx.wait();
+      return tx;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      toast({
+        title: "Success",
+        description: "Ticket(s) purchased successfully!",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to purchase ticket(s)",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useTransferTicket() {
+  const { wallet } = useWeb3();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ eventId, ticketId, to }: { eventId: string; ticketId: string; to: string }) => {
+      if (!wallet.signer) throw new Error("Wallet not connected");
+      const eventContract = getEventContract(wallet.signer);
+
+      const tx = await eventContract.transferTicket(eventId, ticketId, to);
+      await tx.wait();
+      return tx;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      toast({
+        title: "Success",
+        description: "Ticket transferred successfully!",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to transfer ticket",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useMyEventsQuery() {
+  const { wallet } = useWeb3();
+  return useQuery({
+    queryKey: ['my-events', wallet.address],
+    queryFn: async () => {
+      if (!wallet.signer || !wallet.address) throw new Error("Wallet not connected");
+      const eventContract = getEventContract(wallet.signer);
+      const eventIds = await eventContract.getCreatorEvents(wallet.address);
+      const events = await Promise.all(
+        eventIds.map(async (eventId: bigint) => {
+          try {
+            const event = await eventContract.getEventDetails(eventId.toString());
+            if (!event.name || event.id.toString() === "0") return null;
+            // Only include if organizer matches the connected wallet
+            if (event.creator.toLowerCase() !== (wallet.address as string).toLowerCase()) return null;
+            return {
+              id: event.id.toString(),
+              name: event.name,
+              description: event.description,
+              date: new Date(Number(event.date) * 1000),
+              location: event.location,
+              price: Number(ethers.formatEther(event.price)),
+              currency: "ETH",
+              maxTickets: Number(event.maxTickets),
+              remainingTickets: Number(event.maxTickets) - Number(event.ticketsSold),
+              image: event.image || "https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1",
+              organizer: event.creator,
+              category: "music",
+              tags: ["event", "nft"],
+            };
+          } catch (err) {
+            // If the call reverts, skip this eventId
+            return null;
+          }
+        })
+      );
+      return events.filter(e => e && e.id !== "0").sort((a, b) => Number(b.id) - Number(a.id));
+    },
+    enabled: !!wallet.signer && !!wallet.address,
   });
 }

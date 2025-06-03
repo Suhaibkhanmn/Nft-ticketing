@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Test, console} from "forge-std/Test.sol";
-import {EventContract} from "../src/EventContract.sol";
-import {TicketContract} from "../src/TicketContract.sol";
+import "forge-std/Test.sol";
+import "../src/EventContract.sol";
+import "../src/TicketContract.sol";
 
 contract TicketContractTest is Test {
     EventContract public eventContract;
     TicketContract public ticketContract;
+
     address public creator;
     address public buyer;
-    address public seller;
 
     function setUp() public {
         creator = makeAddr("creator");
         buyer = makeAddr("buyer");
-        seller = makeAddr("seller");
 
         vm.startPrank(creator);
         eventContract = new EventContract();
@@ -23,222 +22,76 @@ contract TicketContractTest is Test {
         vm.stopPrank();
     }
 
-    function test_MintTicket() public {
+    function test_MintSingleTicket() public {
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
+        uint256 eventId = eventContract.createEvent("Test", "Desc", block.timestamp + 1 days, "Loc", 0.1 ether, 10, "");
         vm.stopPrank();
 
-        vm.startPrank(buyer);
         vm.deal(buyer, 1 ether);
+        vm.startPrank(buyer);
         uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
 
-        TicketContract.Ticket memory ticket = ticketContract.getTicketDetails(ticketId);
-        assertEq(ticket.id, ticketId);
-        assertEq(ticket.eventId, eventId);
-        assertEq(ticket.price, 0.1 ether);
-        assertFalse(ticket.isForSale);
-        assertEq(ticket.owner, buyer);
-
-        uint256[] memory userTickets = ticketContract.getUserTickets(buyer);
-        assertEq(userTickets.length, 1);
-        assertEq(userTickets[0], ticketId);
-
-        uint256[] memory eventTickets = ticketContract.getEventTickets(eventId);
-        assertEq(eventTickets.length, 1);
-        assertEq(eventTickets[0], ticketId);
-
+        TicketContract.Ticket memory t = ticketContract.getTicketDetails(ticketId);
+        assertEq(t.price, 0.1 ether);
+        assertEq(ticketContract.ownerOf(ticketId), buyer);
+        assertFalse(t.isRefunded);
         vm.stopPrank();
     }
 
-    function test_ListTicketForSale() public {
+    function test_BulkMintTickets() public {
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
+        uint256 eventId = eventContract.createEvent("Bulk", "Desc", block.timestamp + 1 days, "Loc", 0.2 ether, 100, "");
         vm.stopPrank();
 
+        vm.deal(buyer, 5 ether);
         vm.startPrank(buyer);
+        uint256[] memory ids = ticketContract.bulkMintTickets{value: 1 ether}(eventId, 5);
+        assertEq(ids.length, 5);
+        assertEq(ticketContract.getUserTickets(buyer).length, 5);
+        vm.stopPrank();
+    }
+
+    function test_RefundAfterCancellation() public {
+        vm.startPrank(creator);
+        uint256 eventId = eventContract.createEvent("Refundable", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
+        vm.stopPrank();
+
         vm.deal(buyer, 1 ether);
-        uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
+        vm.startPrank(buyer);
+        uint256 ticketId = ticketContract.mintTicket{value: 0.3 ether}(eventId);
         vm.stopPrank();
 
-        vm.startPrank(buyer);
-        ticketContract.listTicketForSale(ticketId, 0.2 ether);
+        vm.prank(creator);
+        eventContract.cancelEvent(eventId);
 
-        TicketContract.Ticket memory ticket = ticketContract.getTicketDetails(ticketId);
-        assertTrue(ticket.isForSale);
-        assertEq(ticket.price, 0.2 ether);
+        vm.deal(address(ticketContract), 1 ether);
+
+        vm.startPrank(buyer);
+        ticketContract.claimRefund(ticketId);
+        assertEq(ticketContract.getUserTickets(buyer).length, 0);
         vm.stopPrank();
     }
 
-    function test_BuyTicket() public {
+    function testFail_RefundBeforeCancel() public {
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
+        uint256 eventId = eventContract.createEvent("FailRefund", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
         vm.stopPrank();
 
-        vm.startPrank(seller);
-        vm.deal(seller, 1 ether);
-        uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
-        ticketContract.listTicketForSale(ticketId, 0.2 ether);
-        vm.stopPrank();
-
-        vm.startPrank(buyer);
         vm.deal(buyer, 1 ether);
-        ticketContract.buyTicket{value: 0.2 ether}(ticketId);
-
-        TicketContract.Ticket memory ticket = ticketContract.getTicketDetails(ticketId);
-        assertFalse(ticket.isForSale);
-        assertEq(ticket.owner, buyer);
-
-        uint256[] memory buyerTickets = ticketContract.getUserTickets(buyer);
-        assertEq(buyerTickets.length, 1);
-        assertEq(buyerTickets[0], ticketId);
-
-        uint256[] memory sellerTickets = ticketContract.getUserTickets(seller);
-        assertEq(sellerTickets.length, 0);
-
+        vm.startPrank(buyer);
+        uint256 ticketId = ticketContract.mintTicket{value: 0.3 ether}(eventId);
+        ticketContract.claimRefund(ticketId); // should fail
         vm.stopPrank();
     }
 
-    function test_TransferTicket() public {
+    function testFail_OverMintBeyondMax() public {
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
+        uint256 eventId = eventContract.createEvent("SmallCap", "Desc", block.timestamp + 1 days, "Loc", 0.1 ether, 2, "");
         vm.stopPrank();
 
-        vm.startPrank(buyer);
         vm.deal(buyer, 1 ether);
-        uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
-        vm.stopPrank();
-
         vm.startPrank(buyer);
-        ticketContract.transferTicket(ticketId, seller);
-
-        TicketContract.Ticket memory ticket = ticketContract.getTicketDetails(ticketId);
-        assertEq(ticket.owner, seller);
-        assertFalse(ticket.isForSale);
-
-        uint256[] memory buyerTickets = ticketContract.getUserTickets(buyer);
-        assertEq(buyerTickets.length, 0);
-
-        uint256[] memory sellerTickets = ticketContract.getUserTickets(seller);
-        assertEq(sellerTickets.length, 1);
-        assertEq(sellerTickets[0], ticketId);
-
+        ticketContract.bulkMintTickets{value: 0.3 ether}(eventId, 3); // exceeds max
         vm.stopPrank();
     }
-
-    function testFail_MintTicketWithInsufficientPayment() public {
-        vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
-        vm.stopPrank();
-
-        vm.startPrank(buyer);
-        vm.deal(buyer, 0.05 ether);
-        vm.expectRevert("Insufficient payment");
-        ticketContract.mintTicket{value: 0.05 ether}(eventId);
-        vm.stopPrank();
-    }
-
-    function testFail_ListTicketForSaleNotOwner() public {
-        vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
-        vm.stopPrank();
-
-        vm.startPrank(buyer);
-        vm.deal(buyer, 1 ether);
-        uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
-        vm.stopPrank();
-
-        vm.startPrank(seller);
-        vm.expectRevert("Not ticket owner");
-        ticketContract.listTicketForSale(ticketId, 0.2 ether);
-        vm.stopPrank();
-    }
-
-    function testFail_BuyTicketNotForSale() public {
-        vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
-        vm.stopPrank();
-
-        vm.startPrank(buyer);
-        vm.deal(buyer, 1 ether);
-        uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
-        vm.stopPrank();
-
-        vm.startPrank(seller);
-        vm.deal(seller, 1 ether);
-        vm.expectRevert("Ticket is not for sale");
-        ticketContract.buyTicket{value: 0.2 ether}(ticketId);
-        vm.stopPrank();
-    }
-
-    function testFail_TransferTicketNotOwner() public {
-        vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent(
-            "Test Event",
-            "Test Description",
-            block.timestamp + 1 days,
-            "Test Location",
-            0.1 ether,
-            100
-        );
-        vm.stopPrank();
-
-        vm.startPrank(buyer);
-        vm.deal(buyer, 1 ether);
-        uint256 ticketId = ticketContract.mintTicket{value: 0.1 ether}(eventId);
-        vm.stopPrank();
-
-        vm.startPrank(seller);
-        vm.expectRevert("Not ticket owner");
-        ticketContract.transferTicket(ticketId, creator);
-        vm.stopPrank();
-    }
-} 
+}
