@@ -44,13 +44,8 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
         uint256 newTicketId = ++_tokenIds;
         _safeMint(msg.sender, newTicketId);
 
-        tickets[newTicketId] = Ticket({
-            id: newTicketId,
-            eventId: eventId,
-            price: event_.price,
-            isForSale: false,
-            isRefunded: false
-        });
+        tickets[newTicketId] =
+            Ticket({id: newTicketId, eventId: eventId, price: event_.price, isForSale: false, isRefunded: false});
 
         eventContract.incrementTicketsSold(eventId);
         userTickets[msg.sender].push(newTicketId);
@@ -71,7 +66,12 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
         return newTicketId;
     }
 
-    function bulkMintTickets(uint256 eventId, uint256 quantity) external payable nonReentrant returns (uint256[] memory) {
+    function bulkMintTickets(uint256 eventId, uint256 quantity)
+        external
+        payable
+        nonReentrant
+        returns (uint256[] memory)
+    {
         require(quantity > 0, "Must mint at least one");
 
         EventContract.Event memory event_ = eventContract.getEventDetails(eventId);
@@ -88,13 +88,8 @@ contract TicketContract is ERC721URIStorage, Ownable, ReentrancyGuard {
             uint256 newTicketId = ++_tokenIds;
             _safeMint(msg.sender, newTicketId);
 
-            tickets[newTicketId] = Ticket({
-                id: newTicketId,
-                eventId: eventId,
-                price: event_.price,
-                isForSale: false,
-                isRefunded: false
-            });
+            tickets[newTicketId] =
+                Ticket({id: newTicketId, eventId: eventId, price: event_.price, isForSale: false, isRefunded: false});
 
             eventContract.incrementTicketsSold(eventId);
             userTickets[msg.sender].push(newTicketId);

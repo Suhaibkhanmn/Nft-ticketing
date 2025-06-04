@@ -54,7 +54,8 @@ contract TicketContractTest is Test {
     function test_RefundAfterCancellation() public {
         // Triggering a new commit for CI
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent("Refundable", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
+        uint256 eventId =
+            eventContract.createEvent("Refundable", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
         vm.stopPrank();
 
         vm.deal(buyer, 1 ether);
@@ -75,7 +76,8 @@ contract TicketContractTest is Test {
 
     function testFail_RefundBeforeCancel() public {
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent("FailRefund", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
+        uint256 eventId =
+            eventContract.createEvent("FailRefund", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
         vm.stopPrank();
 
         vm.deal(buyer, 1 ether);
@@ -87,7 +89,8 @@ contract TicketContractTest is Test {
 
     function testFail_OverMintBeyondMax() public {
         vm.startPrank(creator);
-        uint256 eventId = eventContract.createEvent("SmallCap", "Desc", block.timestamp + 1 days, "Loc", 0.1 ether, 2, "");
+        uint256 eventId =
+            eventContract.createEvent("SmallCap", "Desc", block.timestamp + 1 days, "Loc", 0.1 ether, 2, "");
         vm.stopPrank();
 
         vm.deal(buyer, 1 ether);
