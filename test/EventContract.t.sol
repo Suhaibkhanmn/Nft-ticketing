@@ -32,22 +32,24 @@ contract EventContractTest is Test {
         vm.stopPrank();
     }
 
-    function testFail_UpdateByNonCreator() public {
+    function test_RevertWhen_UpdateByNonCreator() public {
         vm.startPrank(creator);
         uint256 eventId = eventContract.createEvent("E", "D", block.timestamp + 1 days, "L", 1 ether, 50, "");
         vm.stopPrank();
 
         vm.startPrank(user);
+        vm.expectRevert();
         eventContract.updateEventDetails(eventId, "E2", "D2", block.timestamp + 2 days, "L2", 2 ether, 100);
         vm.stopPrank();
     }
 
-    function testFail_CancelByNonCreator() public {
+    function test_RevertWhen_CancelByNonCreator() public {
         vm.startPrank(creator);
         uint256 eventId = eventContract.createEvent("E", "D", block.timestamp + 1 days, "L", 1 ether, 50, "");
         vm.stopPrank();
 
         vm.startPrank(user);
+        vm.expectRevert();
         eventContract.cancelEvent(eventId);
         vm.stopPrank();
     }
