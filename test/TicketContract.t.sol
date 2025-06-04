@@ -74,7 +74,7 @@ contract TicketContractTest is Test {
         vm.stopPrank();
     }
 
-    function testFail_RefundBeforeCancel() public {
+    function test_RevertWhen_RefundBeforeCancel() public {
         vm.startPrank(creator);
         uint256 eventId =
             eventContract.createEvent("FailRefund", "Desc", block.timestamp + 1 days, "Loc", 0.3 ether, 10, "");
@@ -83,11 +83,12 @@ contract TicketContractTest is Test {
         vm.deal(buyer, 1 ether);
         vm.startPrank(buyer);
         uint256 ticketId = ticketContract.mintTicket{value: 0.3 ether}(eventId);
+        vm.expectRevert();
         ticketContract.claimRefund(ticketId); // should fail
         vm.stopPrank();
     }
 
-    function testFail_OverMintBeyondMax() public {
+    function test_RevertWhen_OverMintBeyondMax() public {
         vm.startPrank(creator);
         uint256 eventId =
             eventContract.createEvent("SmallCap", "Desc", block.timestamp + 1 days, "Loc", 0.1 ether, 2, "");
@@ -95,6 +96,7 @@ contract TicketContractTest is Test {
 
         vm.deal(buyer, 1 ether);
         vm.startPrank(buyer);
+        vm.expectRevert();
         ticketContract.bulkMintTickets{value: 0.3 ether}(eventId, 3); // exceeds max
         vm.stopPrank();
     }
