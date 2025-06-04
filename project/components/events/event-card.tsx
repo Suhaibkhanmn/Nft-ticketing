@@ -64,6 +64,7 @@ export function EventCard({ event }: EventCardProps) {
       await purchaseTicket.mutateAsync({
         eventId: event.id,
         price: event.price,
+        quantity: 1,
       });
     } catch (error) {
       console.error("Purchase error:", error);
