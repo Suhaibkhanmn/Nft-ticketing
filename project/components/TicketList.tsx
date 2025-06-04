@@ -9,7 +9,7 @@ export function TicketList() {
 
     const handleBuyTicket = async (ticketId: number) => {
         try {
-            await buyTicket({ args: [ticketId] });
+            await buyTicket([ticketId]);
         } catch (error) {
             console.error('Error buying ticket:', error);
         }
@@ -17,7 +17,7 @@ export function TicketList() {
 
     const handleListTicket = async (ticketId: number, price: string) => {
         try {
-            await listTicketForSale({ args: [ticketId, price] });
+            await listTicketForSale([ticketId, price]);
         } catch (error) {
             console.error('Error listing ticket:', error);
         }
@@ -25,7 +25,7 @@ export function TicketList() {
 
     const handleClaimRefund = async (ticketId: number) => {
         try {
-            await claimRefund({ args: [ticketId] });
+            await claimRefund([ticketId]);
         } catch (error) {
             console.error('Error claiming refund:', error);
         }
