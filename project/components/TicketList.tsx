@@ -33,24 +33,30 @@ export function TicketList() {
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(getUserTickets ?? []).map((ticketId: number) => (
+            {Array.isArray(getUserTickets) && getUserTickets.map((ticketId: number) => (
                 <Card key={ticketId}>
                     <CardHeader>
                         <CardTitle>Ticket #{ticketId}</CardTitle>
+                        {/*
                         <CardDescription>
-                            {getTicketDetails?.(ticketId)?.isForSale ? 'For Sale' : 'Not for Sale'}
+                            {typeof getTicketDetails === 'object' && getTicketDetails?.isForSale ? 'For Sale' : 'Not for Sale'}
                         </CardDescription>
+                        */}
                     </CardHeader>
                     <CardContent>
+                        {/*
                         <p>Price: {getTicketDetails?.(ticketId)?.price} ETH</p>
                         <p>Event ID: {getTicketDetails?.(ticketId)?.eventId}</p>
+                        */}
                     </CardContent>
                     <CardFooter className="flex gap-2">
+                        {/*
                         {getTicketDetails?.(ticketId)?.isForSale ? (
                             <Button onClick={() => handleBuyTicket(ticketId)}>Buy Ticket</Button>
                         ) : (
                             <Button onClick={() => handleListTicket(ticketId, '0.1')}>List for Sale</Button>
                         )}
+                        */}
                         <Button variant="destructive" onClick={() => handleClaimRefund(ticketId)}>
                             Claim Refund
                         </Button>
